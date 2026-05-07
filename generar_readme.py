@@ -6,49 +6,6 @@ Convierte un archivo .txt o .docx en un README.md profesional,
 añadiendo badges, tabla de contenidos y emojis.
 Incluye logging a archivo, validación de entrada y modo debug del AST.
 
-Decisiones de diseño
---------------------
-* ¿Por qué un AST y no regex?
-  Procesar Markdown con expresiones regulares es frágil. Los bloques de código
-  anidan, los fences pueden estar balanceados o no, y las tablas mezclan pipes
-  con pipe de Markdown. Un AST (aunque simplificado) permite razonar sobre la
-  estructura del documento y aplicar transformaciones sin romper otros bloques.
-
-* ¿Por qué este orden en el pipeline?
-  1) Limpieza – eliminar ruido que pueda confundir al parser.
-  2) Insertar encabezados – normalizar títulos que no empiezan con ##.
-  3) Normalizar comandos – envolver cmd/bash/text en fences.
-  4) Detectar bloques – agrupar líneas en bloques tipificados.
-  5) Construir AST – armar el árbol sintáctico.
-  6) Visitores – enriquecer con emojis y normalizar duplicados.
-  7) Renderizar – generar Markdown limpio.
-  Este orden minimiza las interferencias entre etapas. Por ejemplo, si
-  envolvemos comandos después de detectar bloques, rompemos la detección de
-  fences. Si insertamos encabezados después de normalizar comandos, podemos
-  romper bloques de código.
-
-* ¿Por qué forzar algunos encabezados?
-  Documentos que vienen de Word o texto plano suelen tener secciones como
-  "Windows", "Linux", "Uso" sin el prefijo ##. El script las convierte
-  automáticamente para garantizar una TOC completa.
-
-Edge cases resueltos a mano
----------------------------
-* Las líneas de licencia (MIT © ...) se filtraban para que no se convirtieran
-  en encabezados. Al principio solo se miraba el prefijo MIT, pero luego vi que
-  también aparecían con otros formatos, así que agregué la detección de ©.
-* Las líneas con pipes (|) son tablas, pero también pueden ser texto normal en
-  bloques de código. Para no romperlas, el filtro solo actúa fuera de fences.
-* Los bloques de código con comentarios # dentro de bash/cmd se cortaban antes
-  de tiempo. Tuve que agregar una lista de lenguajes de shell donde el #
-  es parte del lenguaje y no un encabezado.
-* El árbol de archivos se fragmentaba porque había líneas de comentario (#)
-  entre las ramas. Ahora el detector de árbol las incluye siempre que sean
-  cortas y no empiecen con ##.
-* La sección "Instalación" desaparecía porque era un nodo sin hijos y el
-  normalizador la eliminaba. Agregué una lista de secciones agrupadoras que
-  nunca se borran aunque estén vacías.
-
 Autor: Javier Grecco (https://github.com/JavierGrecco)
 Licencia: MIT
 """
@@ -233,7 +190,7 @@ def validar_archivo(ruta: str) -> Optional[str]:
         logging.error("El archivo '%s' está vacío.", ruta)
         return None
 
-    # Los archivos .docx son binarios, omitimos comprobación de texto
+    # Los archivos .docx son binarios: no comprobamos codificación de texto
     if camino.suffix.lower() == ".docx":
         return str(camino)
 
@@ -335,6 +292,9 @@ def es_header_semantico(linea: str) -> bool:
     """Indica si una línea parece un título que debería convertirse en encabezado."""
     despojada = linea.strip()
     if not despojada or despojada.startswith("#"):
+        return False
+    # Ignorar líneas que son marcadores de lista
+    if despojada.startswith(("- ", "* ")):
         return False
     if _linea_es_tabla(despojada) or _linea_es_arbol(despojada) or _linea_es_licencia(despojada):
         return False
@@ -459,6 +419,7 @@ def envolver_comandos(texto: str) -> str:
             if codigo:
                 while codigo and codigo[-1].strip() == "":
                     codigo.pop()
+                # Si la última línea no parece comando, se devuelve como línea normal
                 if codigo and not any(codigo[-1].strip().startswith(c) for c in COMANDOS_CONOCIDOS):
                     ultima = codigo.pop()
                     resultado.append(f"```{lenguaje}")
@@ -859,7 +820,7 @@ def construir_readme(contenido: str, argumentos) -> str:
 
     if not getattr(argumentos, "no_creditos", False):
         partes.append("\n## ⭐ Créditos")
-        partes.append("Creado con la herramienta de generación de README.")
+        partes.append("Creado por [Javier Grecco](https://github.com/JavierGrecco) | [LinkedIn](https://www.linkedin.com/in/javier-grecco/)")
 
     readme = "\n".join(partes)
     readme = reparar_fences(readme)
@@ -888,6 +849,8 @@ def main() -> None:
         build.add_argument("--no-credits", action="store_true", help="Omitir sección de créditos")
         build.add_argument("--no-mandatory", action="store_true", help="No insertar secciones obligatorias faltantes")
         build.add_argument("--debug", action="store_true", help="Mostrar el AST generado en consola para depuración")
+        # Opción --watch no implementada en este esqueleto, pero se muestra cómo se añadiría
+        build.add_argument("--watch", action="store_true", help="Observar cambios en el archivo de entrada y regenerar")
 
         args = parser.parse_args()
 

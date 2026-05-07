@@ -1,28 +1,7 @@
 # Generador de README.md [![PyPI version](https://badge.fury.io/py/generar-readme.svg)](https://pypi.org/project/generar-readme/)
 
-![](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white) ![](https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white) ![](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=white) ![](https://img.shields.io/badge/macOS-000000?style=for-the-badge&logo=apple&logoColor=white) ![](https://img.shields.io/badge/Excel-217346?style=for-the-badge&logo=microsoftexcel&logoColor=white) ![](https://img.shields.io/badge/PDF-FF0000?style=for-the-badge&logo=adobeacrobatreader&logoColor=white) ![](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)
-
-## 📋 Tabla de Contenidos
-- [Formato de entrada esperado](#formato-de-entrada-esperado)
-- [Cómo funciona](#cómo-funciona)
-- [:sparkles: Características](#características)
-- [:clipboard: Requisitos](#requisitos)
-- [:wrench: Instalación](#instalación)
-- [**Desde PyPI (recomendado):**](#desde-pypi-recomendado)
-- [**Desde el repositorio:**](#desde-el-repositorio)
-- [:computer: Instalación por sistema operativo](#instalación-por-sistema-operativo)
-- [:computer: **Windows**](#windows)
-- [:computer: **Linux (Debian/Ubuntu)**](#linux-debianubuntu)
-- [:computer: **macOS**](#macos)
-- [:rocket: Uso](#uso)
-- [Opciones disponibles](#opciones-disponibles)
-- [Ejemplos](#ejemplos)
-- [:file_folder: Estructura de archivos](#estructura-de-archivos)
-- [:memo: Logging](#logging)
-- [:test_tube: Tests](#tests)
-- [:scroll: Licencia](#licencia)
-
 Herramienta offline que transforma archivos .txt o .docx en un README.md profesional para GitHub. Extrae la estructura del documento, detecta tecnologías, agrega insignias (badges), tabla de contenidos y emojis, generando un resultado limpio y listo para publicar.
+
 ## Formato de entrada esperado
 
 El script espera un archivo .txt o .docx con la siguiente estructura:
@@ -35,6 +14,7 @@ El script espera un archivo .txt o .docx con la siguiente estructura:
 - Listas: usar - o * al inicio de cada ítem.
 - Sin badges previos: el script los genera automáticamente.
 - Sin TOC manual: el script la genera automáticamente.
+
 ## Cómo funciona
 
 El script procesa el documento de entrada en cuatro etapas:
@@ -45,7 +25,8 @@ El script procesa el documento de entrada en cuatro etapas:
 4.  Enriquecimiento y renderizado – Aplica emojis, añade secciones obligatorias si faltan, genera la tabla de contenidos y produce el Markdown final.
 
 El motor funciona completamente offline. No depende de APIs externas ni de inteligencia artificial generativa.
-## :sparkles: Características
+
+## Características
 
 - Convierte documentos .txt o .docx a README.md profesional.
 - Agrega badges automáticos de tecnologías detectadas (Python, Windows, Linux, Excel, PDF…).
@@ -60,54 +41,57 @@ El motor funciona completamente offline. No depende de APIs externas ni de intel
 - Opciones de línea de comandos para omitir TOC, créditos o forzar la licencia.
 - Instalable como paquete PyPI con pip install.
 - Código modular y documentado, fácil de mantener.
-## :clipboard: Requisitos
+
+## Requisitos
 
 | Componente | Descripción |
 |-----------|-------------|
 | Python | 3.8 o superior |
 | Dependencia opcional | python-docx (solo para leer archivos .docx) |
 | Dependencias de test | pytest, hypothesis (solo para ejecutar los tests) |
-## :wrench: Instalación
-## **Desde PyPI (recomendado):**
 
-```bash
+## Instalación
+
+**Desde PyPI (recomendado):**
+
+bash
 pip install generar-readme
-```
 
 Esto instalará automáticamente las dependencias necesarias.
-## **Desde el repositorio:**
+
+**Desde el repositorio:**
 
 Clona el repositorio e instala las dependencias manualmente:
 
-```bash
+bash
 git clone https://github.com/JavierGrecco/generador-readme
 cd generador-readme
 pip install -r requirements.txt
-```
 
-### :computer: Instalación por sistema operativo
-## :computer: **Windows**
+### Instalación por sistema operativo
+
+**Windows**
 
 Instalar Python desde python.org (marcar "Add Python to PATH")
 
-```cmd
+cmd
 python --version
 pip install python-docx
-```
-## :computer: **Linux (Debian/Ubuntu)**
 
-```bash
+**Linux (Debian/Ubuntu)**
+
+bash
 sudo apt update
 sudo apt install python3 python3-pip
 pip3 install python-docx
-```
-## :computer: **macOS**
 
-```bash
+**macOS**
+
+bash
 brew install python@3.10
 pip3 install python-docx
-```
-## :rocket: Uso
+
+## Uso
 
 **Si instalaste desde PyPI**, el comando `generar-readme` estará disponible globalmente. Ejecutalo en el directorio donde tengas tu archivo .txt o .docx:
 
@@ -134,7 +118,7 @@ Esto detectará automáticamente el archivo fuente y generará README.md.
 
 ### Ejemplos
 
-```bash
+bash
 # Usar un archivo .txt concreto
 python generar_readme.py build --txt "documento.txt"
 
@@ -146,10 +130,10 @@ python generar_readme.py build --txt "doc.txt" --watch
 
 # Depurar la estructura del documento
 python generar_readme.py build --auto --debug
-```
-## :file_folder: Estructura de archivos
 
-```text
+## Estructura de archivos
+
+text
 .
 ├── generar_readme.py          # Script principal
 ├── generar_readme.log         # Registro de ejecución (se crea automáticamente)
@@ -158,15 +142,13 @@ python generar_readme.py build --auto --debug
 ├── requirements.txt           # Dependencias del proyecto
 ├── Fotos/                     # Carpeta opcional para logotipo
 │   └── logo.png
-```
-
-```text
 └── README.md                  # Este archivo
-```
-## :memo: Logging
+
+## Logging
 
 Cada ejecución queda registrada en generar_readme.log con marcas de tiempo y niveles de depuración. Esto permite auditar el proceso y diagnosticar problemas rápidamente.
-## :test_tube: Tests
+
+## Tests
 
 El proyecto incluye un archivo de tests independiente (test_generar_readme.py) que no es necesario para usar el generador. Su función es verificar que cada cambio en el código no rompa funcionalidades que ya estaban funcionando.
 
@@ -181,29 +163,24 @@ El archivo contiene pruebas automatizadas que cubren:
 
 Para ejecutar los tests, instalá las dependencias necesarias y corré pytest desde la misma carpeta donde está el script principal:
 
-```bash
+bash
 pip install pytest hypothesis
 python -m pytest test_generar_readme.py -v
-```
 
 Para omitir los tests pesados de watch mode:
 
-```bash
+bash
 pytest test_generar_readme.py -v -m "not watch"
-```
 
 En macOS o Linux, reemplazá `pip` por `pip3` y `python` por `python3` si es necesario.
 
 También podés ejecutar solo una categoría específica:
 
-```bash
+bash
 pytest test_generar_readme.py -v -k "TestPipeline"       # solo integración
 pytest test_generar_readme.py -v -k "TestPropiedades"    # solo property-based
 pytest test_generar_readme.py -v -k "TestAutoMode"       # solo detección automática
-```
-## :scroll: Licencia
+
+## Licencia
 
 MIT © Javier Grecco – github.com/JavierGrecco
-
-## ⭐ Créditos
-Creado por [Javier Grecco](https://github.com/JavierGrecco) | [LinkedIn](https://www.linkedin.com/in/javier-grecco/)

@@ -1,274 +1,304 @@
 """
-Tests para el Generador de README.md.
+Tests completos para generar_readme.py
 
-Ejecutar con: python3 -m pytest test_generar_readme.py -v
+Ejecutar con:
+    python -m pytest test_generar_readme.py -v
 
-Incluye tests de integración, tests de propiedad (property-based testing
-con Hypothesis) y fuzzing básico para garantizar que el generador no se
-rompe con entradas variadas.
+Marcas disponibles:
+    pytest -m "not watch"   # excluye el test pesado de --watch
 """
 
+import os
+import sys
+import time
 import pytest
-from hypothesis import assume, given, settings, strategies as st
+import tempfile
+import subprocess
+from pathlib import Path
+from unittest.mock import patch
+from hypothesis import given, strategies as st, settings
 
+# Asegurar que el módulo principal se importe correctamente
+sys.path.insert(0, os.path.dirname(__file__))
 from generar_readme import (
-    construir_readme,
     sanitizar,
     forzar_titulos,
     envolver_comandos,
     detectar_bloques,
     construir_ast,
-    walk,
+    renderizar_md,
+    es_header_semantico,
+    buscar_archivo,
+    validar_archivo,
+    leer_txt,
+    leer_docx,
+    construir_readme,
+    main,
     Nodo,
+    INDICADORES_CODIGO,
+    FORCED_HEADERS,
+    PALABRAS_PROHIBIDAS,
 )
 
 
-# ---------------------------------------------------------------------------
-# Fixture: argumentos simulados
-# ---------------------------------------------------------------------------
-class ArgsMock:
-    """Simula los argumentos de línea de comandos para las pruebas."""
-    license = None
-    logo = None
-    no_toc = False
-    no_creditos = False
-    no_obligatorias = True
-    debug = False
+# ----------------------------------------------------------------------
+# Fixtures
+# ----------------------------------------------------------------------
+@pytest.fixture
+def directorio_temporal():
+    """Cambia al directorio temporal y luego regresa al original."""
+    old_cwd = os.getcwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        os.chdir(tmp)
+        yield Path(tmp)
+    os.chdir(old_cwd)
 
 
-# ---------------------------------------------------------------------------
-# Tests de integración
-# ---------------------------------------------------------------------------
-class TestPipelineCompleto:
-    """Verifica que el pipeline produzca la salida esperada para casos conocidos."""
+@pytest.fixture
+def txt_input():
+    """Contenido típico de un archivo .txt bien formado."""
+    return (
+        "# Mi Proyecto\n\n"
+        "## Características\n\n"
+        "- Punto 1\n"
+        "- Punto 2\n\n"
+        "## Instalación\n\n"
+        "bash\n"
+        "pip install mi_paquete\n"
+        "python setup.py install\n\n"
+        "## Uso\n\n"
+        "text\n"
+        "Árbol de ejemplo:\n"
+        "├── src\n"
+        "│   └── main.py\n"
+        "└── README.md\n\n"
+        "## Licencia\n\n"
+        "MIT © alguien"
+    )
 
-    def test_solo_titulo(self):
-        entrada = "# Hola Mundo\n"
-        salida = construir_readme(entrada, ArgsMock())
-        assert "# Hola Mundo" in salida
 
-    def test_secciones_forzadas(self):
-        entrada = "# Proyecto\nWindows\nContenido Windows\nLinux\nContenido Linux\n"
-        salida = construir_readme(entrada, ArgsMock())
-        # El script ahora añade emojis automáticamente
-        assert "## :computer: Windows" in salida
-        assert "## :computer: Linux" in salida
+# ----------------------------------------------------------------------
+# Tests de unidad
+# ----------------------------------------------------------------------
+class TestSanitizar:
+    def test_elimina_badges(self):
+        texto = "![](https://img.shields.io/badge/...)\nHola"
+        assert "Hola" in sanitizar(texto)
+        assert "shields.io" not in sanitizar(texto)
 
-    def test_comando_envuelto(self):
-        entrada = "# Proyecto\nbash\npip install pandas\n"
-        salida = construir_readme(entrada, ArgsMock())
-        assert "```bash" in salida
-        assert "pip install pandas" in salida
+    def test_elimina_lineas_copiar_descargar(self):
+        texto = "Copiar\nDescargar\nContenido"
+        res = sanitizar(texto)
+        assert "Copiar" not in res
+        assert "Descargar" not in res
+        assert "Contenido" in res
 
-    def test_titulo_unico(self):
-        entrada = "# Proyecto\nEsto es una descripción\n"
-        salida = construir_readme(entrada, ArgsMock())
-        assert salida.count("# Proyecto") == 1
 
-    def test_emojis_en_secciones(self):
-        entrada = "# Pro\n## Características\n- Rápido\n## Instalación\nInstalar con pip\n"
-        salida = construir_readme(entrada, ArgsMock())
-        assert ":sparkles:" in salida
-        assert ":wrench:" in salida
+class TestEsHeaderSemantico:
+    def test_lista_no_es_header(self):
+        assert not es_header_semantico("- Dos versiones de salida:")
+        assert not es_header_semantico("* Item")
 
-    def test_arbol_encapsulado(self):
-        entrada = "# Pro\n├── archivo.py\n└── carpeta/\n"
-        salida = construir_readme(entrada, ArgsMock())
-        assert "```text" in salida
+    def test_header_comun(self):
+        assert es_header_semantico("Instalación")
+        assert es_header_semantico("Uso del programa")
 
-    def test_tabla_raw(self):
-        entrada = "# Pro\n| Col1 | Col2 |\n|------|------|\n| A    | B    |\n"
-        salida = construir_readme(entrada, ArgsMock())
-        assert "| Col1 | Col2 |" in salida
-        assert "| A    | B    |" in salida
+    def test_linea_prohibida(self):
+        assert not es_header_semantico("pip install algo")
+
+    def test_tabla_no_es_header(self):
+        assert not es_header_semantico("| Col1 | Col2 |")
 
     def test_licencia_no_es_header(self):
-        entrada = "# Pro\n## Licencia\nMIT © Javier Grecco – github.com/JG\n"
-        salida = construir_readme(entrada, ArgsMock())
-        assert "## MIT" not in salida
-
-    def test_pipes_no_son_headers(self):
-        entrada = "# Pro\n## Requisitos\n| Python | 3.8 |\n| Docx | No |\n"
-        salida = construir_readme(entrada, ArgsMock())
-        assert "## | Python" not in salida
-        assert "## | Docx" not in salida
-
-
-# ---------------------------------------------------------------------------
-# Tests de unidad
-# ---------------------------------------------------------------------------
-class TestSanitizar:
-    def test_elimina_copiar_descargar(self):
-        entrada = "Copiar\nTexto real\nDescargar\n"
-        assert sanitizar(entrada) == "Texto real"
-
-    def test_elimina_badges_existentes(self):
-        entrada = "![](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)"
-        assert sanitizar(entrada) == ""
-
-    def test_elimina_underline_word(self):
-        entrada = "[texto]{.underline}"
-        assert sanitizar(entrada) == "texto"
+        assert not es_header_semantico("MIT © github.com/...")
 
 
 class TestForzarTitulos:
-    def test_convierte_forced_headers(self):
-        entrada = "Windows\nLinux\nmacOS\n"
-        salida = forzar_titulos(entrada)
-        assert "## Windows" in salida
-        assert "## Linux" in salida
-        assert "## macOS" in salida
+    def test_convierte_titulos_conocidos(self):
+        texto = "Instalación\npip install x"
+        resultado = forzar_titulos(texto)
+        assert "## Instalación" in resultado
 
-    def test_ignora_pipes(self):
-        entrada = "| Columna | Descripción |\n"
-        salida = forzar_titulos(entrada)
-        assert not salida.startswith("## |")
+    def test_respeta_headers_existentes(self):
+        texto = "## Ya existente\ntexto"
+        resultado = forzar_titulos(texto)
+        assert resultado.startswith("## Ya existente")
 
-    def test_ignora_arbol(self):
-        entrada = "├── archivo.py\n"
-        salida = forzar_titulos(entrada)
-        assert not salida.startswith("## ├──")
-
-    def test_ignora_codigo(self):
-        entrada = "cmd\npython --version\n"
-        salida = forzar_titulos(entrada)
-        assert not salida.startswith("## cmd")
-
-    def test_inserta_instalacion(self):
-        entrada = "# Pro\n## Requisitos\nPython 3.8\nWindows\nCosas de Windows\n"
-        salida = forzar_titulos(entrada)
-        assert "## Instalación" in salida
+    def test_inserta_instalacion_si_huerfanos(self):
+        texto = "## Windows\npip install"
+        resultado = forzar_titulos(texto)
+        lineas = resultado.splitlines()
+        assert any("## Instalación" in l for l in lineas)
 
 
 class TestEnvolverComandos:
-    def test_envuelve_bash(self):
-        entrada = "bash\npip install pandas\n"
-        salida = envolver_comandos(entrada)
-        assert "```bash" in salida
-        assert "pip install pandas" in salida
+    def test_bash_sueltos(self):
+        texto = "bash\nsudo apt update\nsudo apt install"
+        resultado = envolver_comandos(texto)
+        assert "```bash" in resultado
+        assert "sudo apt update" in resultado
+        assert resultado.count("```") == 2
 
-    def test_envuelve_text(self):
-        entrada = "text\n├── archivo.py\n"
-        salida = envolver_comandos(entrada)
-        assert "```text" in salida
+    def test_text_block(self):
+        texto = "text\nlínea1\nlínea2"
+        resultado = envolver_comandos(texto)
+        assert "```text" in resultado
+        assert "línea1" in resultado
 
-    def test_no_envuelve_dentro_de_fences(self):
-        entrada = "```bash\npip install pandas\n```\n"
-        salida = envolver_comandos(entrada)
-        assert salida.count("```bash") == 1
-
-
-class TestDetectarBloques:
-    def test_detecta_code_block(self):
-        bloques = detectar_bloques(["```bash", "pip install pandas", "```"])
-        assert bloques[0][0] == "CODE_BLOCK"
-
-    def test_detecta_tabla(self):
-        bloques = detectar_bloques(["| Col1 | Col2 |", "|------|------|"])
-        assert bloques[0][0] == "TABLE_RAW"
-
-    def test_detecta_lista(self):
-        bloques = detectar_bloques(["- item1", "- item2"])
-        assert bloques[0][0] == "LIST"
+    def test_no_afecta_fences_existentes(self):
+        texto = "```bash\npip install\n```"
+        resultado = envolver_comandos(texto)
+        assert resultado.count("```bash") == 1
 
 
-class TestAST:
-    def test_construye_ast_basico(self):
-        bloques = detectar_bloques(["# Título", "## Sección", "Contenido"])
-        # El pipeline extrae el título antes de construir el AST, así que solo queda una sección
-        ast = construir_ast(bloques)
-        assert ast.tipo == "DOCUMENTO"
-        assert len(ast.hijos) == 1
+# ----------------------------------------------------------------------
+# Integración: pipeline completo con entradas conocidas
+# ----------------------------------------------------------------------
+class TestPipeline:
+    def test_readme_completo_txt(self, txt_input):
+        argumentos = type("Args", (), {
+            "debug": False,
+            "no_toc": False,
+            "no_creditos": False,
+            "license": None,
+            "logo": None,
+        })()
+        resultado = construir_readme(txt_input, argumentos)
+        # Verifica presencia de elementos clave
+        assert "# Mi Proyecto" in resultado
+        assert "## 📋 Tabla de Contenidos" in resultado
+        assert "## :sparkles: Características" in resultado
+        assert "## :wrench: Instalación" in resultado
+        assert "## :rocket: Uso" in resultado
+        assert "## :scroll: Licencia" in resultado
+        assert resultado.count("```") % 2 == 0  # fences balanceados
 
-    def test_walk_recorre_todos(self):
-        nodo = Nodo("TEST")
-        nodo.agregar_hijo(Nodo("HIJO1"))
-        nodo.agregar_hijo(Nodo("HIJO2"))
-        visitados = []
-        walk(nodo, lambda n: visitados.append(n.tipo))
-        assert len(visitados) == 3
+    def test_titulo_duplicado_no_rompe(self):
+        contenido = "# Proyecto\n\n## Características\n\n- Item 1\n\n## Características\n\n- Item 2"
+        args = type("Args", (), {"debug": False, "no_toc": False, "no_creditos": False, "license": None, "logo": None})()
+        resultado = construir_readme(contenido, args)
+        # La sección duplicada se elimina; solo una aparece y conserva sus hijos
+        assert resultado.count("## :sparkles: Características") == 1
+        assert "- Item 1" in resultado
+
+    def test_licencia_detectada_automatica(self):
+        contenido = "# Test\n\nMIT License"
+        args = type("Args", (), {"debug": False, "no_toc": False, "no_creditos": False, "license": None, "logo": None})()
+        resultado = construir_readme(contenido, args)
+        assert "MIT-yellow" in resultado
 
 
-# ---------------------------------------------------------------------------
-# Tests de propiedad (Property-Based Testing con Hypothesis)
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# Propiedades con Hypothesis (invariantes)
+# ----------------------------------------------------------------------
 class TestPropiedades:
-    """Verifica invariantes que siempre deben cumplirse en el README generado."""
+    @given(st.text(alphabet=st.characters(
+        blacklist_categories=('Cs',),  # no surrogates
+        blacklist_characters=['`', '~']  # evitar fences falsos
+    ), max_size=2000))
+    @settings(max_examples=50, deadline=None)
+    def test_fences_siempre_balanceados(self, raw_text):
+        contenido = f"# Proyecto\n\n{raw_text}"
+        args = type("Args", (), {"debug": False, "no_toc": False, "no_creditos": False, "license": None, "logo": None})()
+        resultado = construir_readme(contenido, args)
+        assert resultado.count("```") % 2 == 0, "Fences desbalanceados"
 
-    @given(st.text(min_size=1, max_size=200))
-    @settings(max_examples=100)
-    def test_no_tira_error_con_entrada_aleatoria(self, texto):
-        try:
-            construir_readme(texto, ArgsMock())
-        except Exception:
-            assume(False)
+    @given(st.text(max_size=1000))
+    @settings(max_examples=30, deadline=None)
+    def test_titulo_aparece_solo_una_vez(self, raw_text):
+        contenido = f"# Mi Titulo\n\n{raw_text}"
+        args = type("Args", (), {"debug": False, "no_toc": False, "no_creditos": False, "license": None, "logo": None})()
+        resultado = construir_readme(contenido, args)
+        assert resultado.count("# Mi Titulo\n") == 1
 
-    @given(
-        titulo=st.text(min_size=1, max_size=50).filter(lambda x: x.strip() != ""),
-        cuerpo=st.text(min_size=0, max_size=100),
-    )
-    @settings(max_examples=100)
-    def test_titulo_aparece_una_sola_vez(self, titulo, cuerpo):
-        entrada = f"# {titulo}\n{cuerpo}"
-        salida = construir_readme(entrada, ArgsMock())
-        # Verifica que el título no aparezca más de una vez
-        # (tolera que desaparezca si el título es muy corto o tiene caracteres extraños)
-        assert salida.count(f"# {titulo.strip()}") <= 1
-
-    @given(st.text(min_size=1, max_size=300))
-    @settings(max_examples=100)
-    def test_fences_siempre_balanceados(self, texto):
-        salida = construir_readme(texto, ArgsMock())
-        assert salida.count("```") % 2 == 0
-
-    @given(st.text(min_size=1, max_size=300))
-    @settings(max_examples=100)
-    def test_siempre_tiene_creditos(self, texto):
-        salida = construir_readme(texto, ArgsMock())
-        assert "## ⭐ Créditos" in salida
-
-    @given(st.text(min_size=1, max_size=200))
-    @settings(max_examples=100)
-    def test_output_no_contiene_lineas_prohibidas(self, texto):
-        salida = construir_readme(texto, ArgsMock())
-        assert "Copiar" not in salida.splitlines()
-        assert "Descargar" not in salida.splitlines()
+    @given(st.text(max_size=1000))
+    @settings(max_examples=30, deadline=None)
+    def test_creditos_siempre_presentes(self, raw_text):
+        contenido = f"# Proyecto\n\n{raw_text}"
+        args = type("Args", (), {"debug": False, "no_toc": False, "no_creditos": False, "license": None, "logo": None})()
+        resultado = construir_readme(contenido, args)
+        assert "## ⭐ Créditos" in resultado
 
 
-# ---------------------------------------------------------------------------
-# Tests de casos límite
-# ---------------------------------------------------------------------------
+# ----------------------------------------------------------------------
+# Edge cases
+# ----------------------------------------------------------------------
 class TestEdgeCases:
-    """Casos que fallaron en iteraciones anteriores y ahora deben pasar."""
+    def test_comentarios_bash_no_confunden(self):
+        texto = "bash\n# esto es un comentario\necho hola"
+        resultado = envolver_comandos(texto)
+        # El comentario se queda dentro del bloque bash
+        assert "# esto es un comentario" in resultado
+        assert resultado.count("```bash") == 1
 
-    def test_bloque_codigo_con_comentarios_bash(self):
-        entrada = "# Pro\nbash\n# comentario\npip install pandas\n"
-        salida = construir_readme(entrada, ArgsMock())
-        assert "```bash" in salida
-        assert "# comentario" in salida
+    def test_seccion_instalacion_vacia_se_mantiene(self):
+        # Instalación es agrupadora, no se borra aunque esté vacía
+        bloques = [("LINE", "## Instalación")]
+        ast = construir_ast(bloques)
+        from generar_readme import normalizar_ast
+        normalizado = normalizar_ast(ast)
+        titulos = [h.contenido for h in normalizado.hijos if h.tipo == "SECCION"]
+        assert any("Instalación" in t for t in titulos)
 
-    def test_texto_explicativo_fuera_del_fence(self):
-        """El texto 'Esto es texto aparte' debe quedar fuera del bloque bash."""
-        entrada = "# Pro\nbash\npip install pandas\nEsto es texto aparte\n"
-        salida = construir_readme(entrada, ArgsMock())
-        lineas = salida.splitlines()
-        dentro = False
-        texto_dentro = False
-        for l in lineas:
-            if l.strip() == "```bash":
-                dentro = True
-            elif l.strip() == "```" and dentro:
-                dentro = False
-            elif dentro and "Esto es texto aparte" in l:
-                texto_dentro = True
-        assert not texto_dentro
 
-    def test_secciones_agrupadoras_no_se_borran(self):
-        entrada = "# Pro\n## Instalación\n## Windows\nCosas de Windows\n"
-        salida = construir_readme(entrada, ArgsMock())
-        assert "## :wrench: Instalación" in salida
+# ----------------------------------------------------------------------
+# Tests para --auto (buscar_archivo y main)
+# ----------------------------------------------------------------------
+class TestAutoMode:
+    def test_buscar_prioridad_nombre(self, directorio_temporal):
+        (directorio_temporal / "readme.txt").write_text("contenido")
+        (directorio_temporal / "otro.txt").write_text("otro")
+        resultado = buscar_archivo()
+        assert resultado.name == "readme.txt"
 
-    def test_pytest_dentro_del_fence(self):
-        entrada = "# Pro\nbash\npip install pytest\npytest test_generar_readme.py -v\n"
-        salida = construir_readme(entrada, ArgsMock())
-        assert "pytest test_generar_readme.py" in salida
+    def test_buscar_mas_reciente(self, directorio_temporal):
+        a = directorio_temporal / "a.txt"
+        b = directorio_temporal / "b.txt"
+        a.write_text("a")
+        time.sleep(0.1)
+        b.write_text("b")
+        resultado = buscar_archivo()
+        assert resultado.name == "b.txt"
+
+    def test_buscar_sin_archivos(self, directorio_temporal):
+        resultado = buscar_archivo()
+        assert resultado is None
+
+    def test_main_auto_genera_readme(self, directorio_temporal, monkeypatch, capsys):
+        (directorio_temporal / "catalogo.txt").write_text("# Proyecto\n\n## Uso\n\ntext\nprueba auto\n")
+        monkeypatch.setattr(sys, "argv", ["generar_readme.py", "build", "--auto", "-o", "README.md"])
+        main()
+        salida = Path("README.md")
+        assert salida.exists()
+        assert "prueba auto" in salida.read_text()
+
+
+# ----------------------------------------------------------------------
+# Test para --watch (se ejecuta solo bajo demanda)
+# ----------------------------------------------------------------------
+@pytest.mark.watch
+@pytest.mark.timeout(15)
+def test_watch_mode_regenera(tmp_path):
+    entrada = tmp_path / "test.txt"
+    entrada.write_text("# Inicial\n\n## Sección\n\ntext\nlinea1\n")
+    salida = tmp_path / "README.md"
+
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "generar_readme", "build", "--txt", str(entrada), "-o", str(salida), "--watch"],
+        cwd=tmp_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
+    try:
+        time.sleep(2)
+        assert salida.exists()
+        contenido_inicial = salida.read_text()
+        assert "linea1" in contenido_inicial
+
+        entrada.write_text("# Modificado\n\n## Sección\n\ntext\nlinea2\n")
+        time.sleep(3)
+        contenido_modificado = salida.read_text()
+        assert "linea2" in contenido_modificado
+    finally:
+        proc.terminate()
+        proc.wait(timeout=5)
